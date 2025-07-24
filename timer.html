@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus Timer</title>
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" sizes="32x32" href="./icon-192.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #101010;
+            --glass-bg: rgba(38, 38, 38, 0.6);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --primary-text: #f0f0f0;
+            --secondary-text: #a0a0a0;
+            --accent-color: #ffffff;
+            --font-main: 'Inter', sans-serif;
+            --font-mono: 'Roboto Mono', monospace;
+            /* New timer colors for different modes */
+            --pomodoro-color: #f0f0f0; /* Default white */
+            --short-break-color: #88B04B; /* Greenish */
+            --long-break-color: #C06C84; /* Purplish */
+
+            /* iOS Switch Colors */
+            --switch-bg-off: #666;
+            --switch-bg-on: #4CAF50; /* Green */
+            --switch-toggle-bg: #fff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--primary-text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container { width: 100%; height: 100%; position: relative; }
+        .background-animations { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden;} /* overflow: hidden追加 */
+
+        /* --- Glassmorphism Panels --- */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            position: absolute;
+            z-index: 20;
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+            padding: 1.5rem;
+            width: 340px;
+        }
+        .glass-panel.visible { opacity: 1; transform: scale(1) translateY(0); pointer-events: auto; }
+        
+        /* --- Timer Display --- */
+        .timer-container { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; position: relative; z-index: 10; user-select: none; }
+        .timer-display { 
+            display: flex; 
+            font-family: var(--font-mono); 
+            font-weight: 500; 
+            font-size: clamp(6rem, 20vw, 12rem); 
+            color: var(--pomodoro-color); /* Default color */
+            line-height: 1; 
+            transition: color 0.5s ease; /* Smooth color transition */
+        }
+        .timer-display.shortBreak { color: var(--short-break-color); }
+        .timer-display.longBreak { color: var(--long-break-color); }
+
+        .digit-container { position: relative; width: 0.6em; height: 1em; overflow: hidden; }
+        .digit-track { position: absolute; left: 0; top: 0; transition: transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
+        .digit-track span { display: block; }
+        .colon { width: auto !important; }
+        .timer-controls { display: flex; gap: 1.5rem; margin-top: 2rem; align-items: center; }
+        .control-btn { background: none; border: none; color: var(--secondary-text); font-size: 1.75rem; cursor: pointer; transition: all 0.2s ease; }
+        .control-btn:hover { color: var(--primary-text); transform: scale(1.1); }
+        #start-stop-btn { font-family: var(--font-main); font-weight: 700; font-size: 1rem; width: 140px; height: 50px; border-radius: 99px; background-color: var(--accent-color); color: var(--bg-color); transition: all 0.3s ease; }
+        #start-stop-btn:hover { transform: scale(1.05); }
+        #start-stop-btn.running { background-color: transparent; border: 2px solid var(--accent-color); color: var(--accent-color); }
+
+        /* --- Corner & Mobile Nav --- */
+        .corner-nav { position: absolute; z-index: 30; padding: 2rem; }
+        .corner-nav.top-left { top: 0; left: 0; } .corner-nav.top-right { top: 0; right: 0; }
+        .corner-nav.bottom-left { bottom: 0; left: 0; } .corner-nav.bottom-right { bottom: 0; right: 0; }
+        .nav-icon { font-size: 1.5rem; color: var(--secondary-text); background: var(--glass-bg); backdrop-filter: blur(10px); border: 1px solid var(--glass-border); width: 50px; height: 50px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s ease; }
+        .nav-icon:hover, .nav-icon.active { color: var(--primary-text); transform: scale(1.1); }
+        .mobile-nav { display: none; }
+        #todo-panel { top: 80px; left: 2rem; } #ambient-panel { top: 80px; right: 2rem; }
+        #bgm-panel { bottom: 80px; left: 2rem; } #settings-panel { bottom: 80px; right: 2rem; }
+        
+        /* --- Panel Content --- */
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+        .panel-header h3 { font-weight: 700; }
+        .close-panel-btn { font-size: 1.25rem; cursor: pointer; color: var(--secondary-text); transition: color 0.2s; }
+        .close-panel-btn:hover { color: var(--primary-text); }
+        .item-list { display: flex; flex-direction: column; gap: 1.25rem; max-height: 280px; overflow-y: auto; padding-right: 0.5rem; }
+        
+        /* Todo List */
+        #todo-input { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); color: var(--primary-text); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
+        #todo-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; max-height: 200px; overflow-y: auto; }
+        #todo-list li { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+        #todo-list li:hover { background: rgba(255,255,255,0.1); }
+        #todo-list li.completed span { text-decoration: line-through; color: var(--secondary-text); }
+        #todo-list li span { flex-grow: 1; }
+        #todo-list li .delete-btn { font-size: 1rem; color: var(--secondary-text); background: none; border: none; cursor: pointer; } /* Added styles for delete-btn */
+        #todo-list li .delete-btn:hover { color: var(--primary-text); }
+
+
+        /* Sound & Settings Panels */
+        .sound-item, .setting-item { display: flex; justify-content: space-between; align-items: center; }
+        .sound-item-info { display: flex; align-items: center; gap: 1rem; }
+        .sound-item-info i { font-size: 1.2rem; }
+        .sound-item-controls { 
+            display: flex; 
+            align-items: center; 
+            gap: 1rem; 
+            overflow: hidden; /* ホバー時の意図しないスクロールバーを防ぐ */
+        }
+        .sound-item.playing .sound-item-info { color: var(--accent-color); }
+
+        /* BGM Player */
+        #bgm-panel .item-list { align-items: center; }
+        #bgm-art { 
+            width: 120px; 
+            height: 120px; /* Make it square */
+            background: rgba(0,0,0,0.2); 
+            border-radius: 12px; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            font-size: 3rem; 
+            color: var(--secondary-text); 
+            margin-bottom: 1rem; 
+        }
+        #bgm-info { text-align: center; margin-bottom: 1rem; }
+        #bgm-title { font-weight: bold; } #bgm-artist { font-size: 0.9rem; color: var(--secondary-text); }
+        #bgm-controls { display: flex; justify-content: center; align-items: center; gap: 1.5rem; margin-bottom: 1rem; }
+        #bgm-volume-container { width: 150px; }
+        #bgm-file-label { cursor:pointer; text-decoration: underline; font-size: 0.8rem; color: var(--secondary-text); margin-top: 1rem; }
+
+        /* Settings Panel */
+        .setting-item input[type=text] { /* type=number から type=text に変更 */
+            width: 60px; 
+            background-color: rgba(0,0,0,0.3); 
+            border: 1px solid var(--glass-border); 
+            color: var(--primary-text); 
+            padding: 0.5rem; 
+            border-radius: 8px; 
+            font-family: var(--font-mono); 
+            text-align: center;
+            /* スピナーボタンを非表示 */
+            -moz-appearance: textfield; /* Firefox */
+        }
+        .setting-item input[type=text]::-webkit-outer-spin-button,
+        .setting-item input[type=text]::-webkit-inner-spin-button {
+            -webkit-appearance: none; /* Chrome, Safari */
+            margin: 0;
+        }
+        
+        /* Custom Volume Slider */
+        .custom-slider { height: 20px; width: 100%; display: flex; align-items: center; cursor: pointer; }
+        .slider-track { position: relative; width: 100%; height: 4px; background: rgba(0,0,0,0.3); border-radius: 2px; }
+        .slider-progress { position: absolute; left: 0; height: 100%; background: var(--accent-color); border-radius: 2px; }
+        .slider-thumb { position: absolute; top: 50%; width: 14px; height: 14px; background: var(--accent-color); border-radius: 50%; transform: translate(-50%, -50%); }
+
+        /* iOS style toggle switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px; /* Default width */
+            height: 24px; /* Default height */
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider-ios {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--switch-bg-off);
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 24px; /* Make it round */
+        }
+
+        .slider-ios:before {
+            position: absolute;
+            content: "";
+            height: 20px; /* Toggle size */
+            width: 20px; /* Toggle size */
+            left: 2px; /* Initial position */
+            bottom: 2px; /* Initial position */
+            background-color: var(--switch-toggle-bg);
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%; /* Make it round */
+        }
+
+        input:checked + .slider-ios {
+            background-color: var(--switch-bg-on);
+        }
+
+        input:focus + .slider-ios {
+            box-shadow: 0 0 1px var(--switch-bg-on);
+        }
+
+        input:checked + .slider-ios:before {
+            -webkit-transform: translateX(20px); /* Move toggle to right */
+            -ms-transform: translateX(20px);
+            transform: translateX(20px);
+        }
+
+        /* Modern Scrollbar */
+        /* For Webkit browsers (Chrome, Safari) */
+        ::-webkit-scrollbar {
+            width: 8px; /* スクロールバーの幅 */
+            height: 8px; /* 横スクロールバーの高さ */
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1); /* トラックの背景色 */
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3); /* サムの背景色 */
+            border-radius: 10px;
+            border: 2px solid transparent; /* トラックとの間に透明なボーダーを設けて空間を作る */
+            background-clip: padding-box; /* padding-boxの外側には背景を描画しない */
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5); /* ホバー時のサムの色 */
+        }
+
+        /* For Firefox */
+        /* Firefoxは::-webkit-scrollbarをサポートしていません。代わりにscrollbar-widthとscrollbar-colorを使用 */
+        html {
+            scrollbar-width: thin; /* "auto" または "thin" */
+            scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.1); /* サムの色 トラックの色 */
+        }
+
+
+        /* Responsive Design */
+        /* デスクトップ版のナビゲーションを隠す */
+        @media (max-width: 768px) {
+            .corner-nav { display: none; }
+            /* モバイル版のナビゲーションを表示 */
+            .mobile-nav { 
+                display: flex; 
+                position: fixed; 
+                bottom: 0; 
+                left: 0; 
+                width: 100%; 
+                z-index: 30; 
+                padding: 0.5rem 0; /* 上下のパディングを調整 */
+                background: var(--glass-bg); 
+                backdrop-filter: blur(10px); 
+                border-top: 1px solid var(--glass-border); 
+                justify-content: space-around; 
+                box-shadow: 0 -2px 10px rgba(0,0,0,0.3); /* 影を追加して浮遊感を出す */
+            }
+            .nav-icon { 
+                background: none; 
+                border: none; 
+                width: 48px; /* アイコンのサイズを少し小さく */
+                height: 48px; /* アイコンのサイズを少し小さく */
+                font-size: 1.3rem; /* アイコンのフォントサイズを調整 */
+            }
+            /* パネル表示位置の調整 */
+            .glass-panel { 
+                width: calc(100% - 2rem); /* 左右に1remずつ余白 */
+                left: 1rem; 
+                right: 1rem; 
+                bottom: 70px; /* モバイルナビゲーションの上に表示 */
+                top: auto; /* 上固定を解除 */
+                max-height: 80vh; /* 最大高さを設定してスクロール可能に */
+                padding: 1rem; /* パディングを少し減らす */
+                transform: scale(0.98) translateY(10px); /* アニメーションの調整 */
+            }
+            .glass-panel.visible { 
+                transform: scale(1) translateY(0); 
+            }
+            /* タイマー表示のフォントサイズ調整 */
+            .timer-display {
+                font-size: clamp(6rem, 18vw, 10rem); /* モバイル向けにさらに調整 */
+            }
+            /* タイマーコントロールのボタンサイズ調整 */
+            .control-btn {
+                font-size: 1.5rem;
+            }
+            #start-stop-btn {
+                width: 120px;
+                height: 45px;
+                font-size: 0.9rem;
+            }
+            /* Todoリスト入力欄の調整 */
+            #todo-input {
+                padding: 0.6rem;
+            }
+            /* BGMプレイヤーのアートワーク調整 */
+            #bgm-art {
+                width: 100px;
+                height: 100px;
+                font-size: 2.5rem;
+            }
+            /* パネル内のリストアイテムのギャップを調整 */
+            .item-list {
+                gap: 1rem;
+                max-height: 30vh; /* ambient soundパネルの高さ調整 */
+            }
+        }
+
+        /* 小さい画面（例: iPhone SE, Galaxy Foldなど）向けの追加調整 */
+        @media (max-width: 480px) {
+            .glass-panel {
+                width: calc(100% - 1rem); /* 左右に0.5remずつ余白 */
+                left: 0.5rem;
+                right: 0.5rem;
+                bottom: 65px; /* さらに調整 */
+                padding: 0.8rem;
+            }
+            .mobile-nav {
+                padding: 0.3rem 0;
+            }
+            .nav-icon {
+                width: 44px;
+                height: 44px;
+                font-size: 1.2rem;
+            }
+            .timer-display {
+                font-size: clamp(5rem, 20vw, 9rem); /* さらに大きく */
+            }
+            .timer-controls {
+                gap: 1rem;
+                margin-top: 1.5rem;
+            }
+            .control-btn {
+                font-size: 1.3rem;
+            }
+            #start-stop-btn {
+                width: 100px;
+                height: 40px;
+                font-size: 0.8rem;
+            }
+            #todo-input {
+                padding: 0.5rem;
+                font-size: 0.9rem;
+            }
+            #bgm-art {
+                width: 80px;
+                height: 80px;
+                font-size: 2rem;
+            }
+            .item-list {
+                gap: 0.8rem;
+                max-height: 25vh; /* 小さい画面でのambient soundパネルの高さ調整 */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="background-animations"></div>
+
+        <main class="timer-container">
+            <div class="timer-display" id="timer-display">
+                <div class="digit-container" id="min1"></div> <div class="digit-container" id="min2"></div>
+                <div class="digit-container colon">:</div>
+                <div class="digit-container" id="sec1"></div> <div class="digit-container" id="sec2"></div>
+            </div>
+            <div class="timer-controls">
+                <button class="control-btn" id="reset-btn" title="Reset"><i class="ri-refresh-line"></i></button>
+                <button id="start-stop-btn">START</button>
+                <button class="control-btn" id="next-btn" title="Next"><i class="ri-skip-right-line"></i></button>
+            </div>
+        </main>
+
+        <div class="corner-nav top-left"><button class="nav-icon" data-panel="todo-panel" title="To-Do List"><i class="ri-checkbox-line"></i></button></div>
+        <div class="corner-nav top-right"><button class="nav-icon" data-panel="ambient-panel" title="Ambient Sounds"><i class="ri-headphone-line"></i></button></div>
+        <div class="corner-nav bottom-left"><button class="nav-icon" data-panel="bgm-panel" title="BGM"><i class="ri-music-2-line"></i></button></div>
+        <div class="corner-nav bottom-right"><button class="nav-icon" data-panel="settings-panel" title="Settings"><i class="ri-settings-3-line"></i></button></div>
+
+        <div class="mobile-nav">
+             <button class="nav-icon" data-panel="todo-panel" title="To-Do List"><i class="ri-checkbox-line"></i></button>
+             <button class="nav-icon" data-panel="ambient-panel" title="Ambient Sounds"><i class="ri-headphone-line"></i></button>
+             <button class="nav-icon" data-panel="bgm-panel" title="BGM"><i class="ri-music-2-line"></i></button>
+             <button class="nav-icon" data-panel="settings-panel" title="Settings"><i class="ri-settings-3-line"></i></button>
+        </div>
+
+        <div id="todo-panel" class="glass-panel"><header class="panel-header"><h3>To-Do List</h3><i class="ri-close-line close-panel-btn" data-panel="todo-panel"></i></header><input type="text" id="todo-input" placeholder="Add a task and press Enter"><ul id="todo-list"></ul></div>
+        <div id="ambient-panel" class="glass-panel"><header class="panel-header"><h3>Ambient Sounds</h3><i class="ri-close-line close-panel-btn" data-panel="ambient-panel"></i></header><div class="item-list" id="ambient-list"></div></div>
+        <div id="bgm-panel" class="glass-panel"><header class="panel-header"><h3>BGM Player</h3><i class="ri-close-line close-panel-btn" data-panel="bgm-panel"></i></header><div class="item-list" style="align-items: center;"><div id="bgm-art"><i class="ri-music-2-line"></i></div><div id="bgm-info"><p id="bgm-title">No music selected</p><p id="bgm-artist"></p></div><div id="bgm-controls"><button class="control-btn" id="bgm-prev-btn"><i class="ri-skip-left-line"></i></button><button class="control-btn" id="bgm-play-btn"><i class="ri-play-line"></i></button><button class="control-btn" id="bgm-next-btn"><i class="ri-skip-right-line"></i></button></div><div id="bgm-volume-container" class="custom-slider"></div><input type="file" id="bgm-file-input" multiple accept=".mp3" style="display:none"><label for="bgm-file-input" id="bgm-file-label">Add BGM from files</label></div></div>
+        <div id="settings-panel" class="glass-panel"><header class="panel-header"><h3>Settings</h3><i class="ri-close-line close-panel-btn" data-panel="settings-panel"></i></header><div class="item-list" id="settings-list"></div></div>
+    </div>
+    
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- STATE & CONFIG ---
+    let timer;
+    let timeLeft;
+    let isRunning = false;
+    let mode = 'pomodoro'; // 'pomodoro', 'shortBreak', 'longBreak'
+    let pomodoroCount = 0; // 完了したポモドーロセッション数
+
+    // Load settings from localStorage or use defaults
+    let settings = JSON.parse(localStorage.getItem('focusTimerSettings')) || {
+        pomodoro: 25,
+        shortBreak: 5,
+        longBreak: 15,
+        longBreakInterval: 4, // 何ポモドーロごとに長い休憩を取るか (0でロングブレイクなし)
+        autoStartPomodoro: true, // デフォルトでオン
+        autoStartBreak: true,    // デフォルトでオン
+        notificationSound: true,
+        masterVolume: 0.5 // Master volume for all sounds
+    };
+
+    // settingsDefaultValues 関数を定義
+    const settingsDefaultValues = () => ({
+        pomodoro: 25,
+        shortBreak: 5,
+        longBreak: 15,
+        longBreakInterval: 4,
+        autoStartPomodoro: true,
+        autoStartBreak: true,
+        notificationSound: true,
+        masterVolume: 0.5
+    });
+
+
+    // --- DOM ELEMENTS ---
+    const dom = {
+        timerDisplay: document.getElementById('timer-display'), // Add timer display element
+        digitContainers: { min1: document.getElementById('min1'), min2: document.getElementById('min2'), sec1: document.getElementById('sec1'), sec2: document.getElementById('sec2') },
+        startStopBtn: document.getElementById('start-stop-btn'),
+        resetBtn: document.getElementById('reset-btn'),
+        nextBtn: document.getElementById('next-btn'),
+        navIcons: document.querySelectorAll('.nav-icon'),
+        panels: document.querySelectorAll('.glass-panel'),
+        closePanelBtns: document.querySelectorAll('.close-panel-btn'),
+        mobileNav: document.querySelector('.mobile-nav'),
+        ambientList: document.getElementById('ambient-list'),
+        settingsList: document.getElementById('settings-list'),
+        bgm: { playBtn: document.getElementById('bgm-play-btn'), prevBtn: document.getElementById('bgm-prev-btn'), nextBtn: document.getElementById('bgm-next-btn'), volumeContainer: document.getElementById('bgm-volume-container'), title: document.getElementById('bgm-title'), artist: document.getElementById('bgm-artist'), fileInput: document.getElementById('bgm-file-input') },
+        todo: { input: document.getElementById('todo-input'), list: document.getElementById('todo-list') },
+        background: document.querySelector('.background-animations'),
+    };
+    
+    // --- NOTIFICATION SOUND (JavaScript生成) ---
+    // Web Audio APIを使って短いビープ音を生成する関数
+    const playNotificationSound = (volume) => {
+        if (!settings.notificationSound) return; // 設定で無効なら再生しない
+
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.type = 'sine'; // 正弦波
+        oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime); // C5 (約523Hz)
+        gainNode.gain.setValueAtTime(volume, audioContext.currentTime); // Master Volumeを適用
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5); // 0.5秒で減衰
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5); // 0.5秒後に停止
+    };
+
+
+    // --- TIMER LOGIC ---
+    const setupDigitTracks = () => {
+        const digitValues = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']; // 0から9までの数字
+        Object.values(dom.digitContainers).forEach(c => {
+            if (c.classList.contains('colon')) return; // コロンはスキップ
+            const track = document.createElement('div');
+            track.className = 'digit-track';
+            digitValues.forEach(digit => {
+                const span = document.createElement('span');
+                span.textContent = digit;
+                track.appendChild(span);
+            });
+            c.appendChild(track);
+        });
+    };
+
+    const updateTimerDisplay = (time) => {
+        const minutes = Math.floor(time / 60);
+        const seconds = time % 60;
+        
+        const m1 = Math.floor(minutes / 10);
+        const m2 = minutes % 10;
+        const s1 = Math.floor(seconds / 10);
+        const s2 = seconds % 10;
+
+        // updateDigitTrack関数を使って各桁を更新
+        updateDigitTrack(dom.digitContainers.min1, m1);
+        updateDigitTrack(dom.digitContainers.min2, m2);
+        updateDigitTrack(dom.digitContainers.sec1, s1);
+        updateDigitTrack(dom.digitContainers.sec2, s2);
+
+        document.title = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')} - Focus Timer`;
+
+        // Update timer display color based on mode
+        dom.timerDisplay.classList.remove('pomodoro', 'shortBreak', 'longBreak'); // Remove all first
+        dom.timerDisplay.classList.add(mode);
+    };
+
+    const updateDigitTrack = (container, digit) => {
+        const track = container.querySelector('.digit-track');
+        // transitionDelayを少し設定することで、連続する数字の変化が少しずれてアニメーションするように見せる
+        track.style.transitionDelay = `${Math.random() * 0.05}s`; 
+        track.style.transform = `translateY(-${digit}em)`;
+    };
+
+
+    const startTimer = () => {
+        if (isRunning) return;
+        isRunning = true;
+        dom.startStopBtn.textContent = 'PAUSE';
+        dom.startStopBtn.classList.add('running');
+        timer = setInterval(() => {
+            timeLeft--;
+            updateTimerDisplay(timeLeft);
+            if (timeLeft <= 0) {
+                clearInterval(timer);
+                isRunning = false;
+                playNotificationSound(settings.masterVolume); // タイマー終了時に音を再生
+                switchMode(true); // 自動で次のモードへ
+            }
+        }, 1000);
+    };
+
+    const pauseTimer = () => {
+        if (!isRunning) return;
+        isRunning = false;
+        clearInterval(timer);
+        dom.startStopBtn.textContent = 'START';
+        dom.startStopBtn.classList.remove('running');
+    };
+
+    const resetTimer = () => {
+        pauseTimer();
+        // 全セクションをリセットし、ポモドーロの初期状態に戻す
+        mode = 'pomodoro'; 
+        pomodoroCount = 0;
+        timeLeft = settings.pomodoro * 60; 
+        updateTimerDisplay(timeLeft);
+    };
+
+    // モード切り替え
+    const switchMode = (auto = false) => {
+        const wasRunning = isRunning; // 現在タイマーが動作中だったか記憶
+        pauseTimer(); // 一度タイマーを停止
+
+        if (auto) {
+            // 自動切り替えの場合
+            if (mode === 'pomodoro') {
+                pomodoroCount++;
+                
+                // longBreakIntervalが0の場合はロングブレイクをスキップ
+                if (settings.longBreakInterval > 0 && pomodoroCount % settings.longBreakInterval === 0) {
+                    mode = 'longBreak';
+                } else {
+                    mode = 'shortBreak';
+                }
+
+                if (settings.autoStartBreak) {
+                    // 自動で休憩を開始
+                    setTimeout(() => {
+                        timeLeft = settings[mode] * 60;
+                        updateTimerDisplay(timeLeft);
+                        startTimer();
+                    }, 100); // 少し間を開けて開始
+                } else {
+                    timeLeft = settings[mode] * 60;
+                    updateTimerDisplay(timeLeft);
+                }
+            } else { // 休憩が終了した場合
+                mode = 'pomodoro';
+                if (settings.autoStartPomodoro) {
+                    // 自動でポモドーロを開始
+                    setTimeout(() => {
+                        timeLeft = settings[mode] * 60;
+                        updateTimerDisplay(timeLeft);
+                        startTimer();
+                    }, 100); // 少し間を開けて開始
+                } else {
+                    timeLeft = settings[mode] * 60;
+                    updateTimerDisplay(timeLeft);
+                }
+            }
+        } else {
+            // 手動スキップの場合（nextBtnクリック時など）
+            if (mode === 'pomodoro') {
+                pomodoroCount++; // スキップでもポモドーロ完了とみなす
+                // longBreakIntervalが0の場合はロングブレイクをスキップ
+                if (settings.longBreakInterval > 0 && pomodoroCount % settings.longBreakInterval === 0) {
+                    mode = 'longBreak';
+                } else {
+                    mode = 'shortBreak';
+                }
+            } else {
+                mode = 'pomodoro';
+            }
+            timeLeft = settings[mode] * 60;
+            updateTimerDisplay(timeLeft);
+            if (wasRunning) { // スキップ前にタイマーが動いていたら、スキップ後も動かす
+                startTimer();
+            }
+        }
+    };
+
+
+    // --- CUSTOM SLIDER ---
+    const createCustomSlider = (parent, onChange, initialValue = 0.5) => {
+        parent.innerHTML = `<div class="slider-track"><div class="slider-progress"></div><div class="slider-thumb"></div></div>`;
+        const track = parent.querySelector('.slider-track');
+        const progress = parent.querySelector('.slider-progress');
+        const thumb = parent.querySelector('.slider-thumb');
+
+        const updateSlider = (value) => {
+            // Ensure value is a finite number
+            if (!Number.isFinite(value)) {
+                console.warn("Invalid slider value provided:", value);
+                return;
+            }
+            progress.style.width = `${value * 100}%`;
+            thumb.style.left = `${value * 100}%`;
+        };
+
+        const handleMove = (e) => {
+            e.preventDefault(); // これが重要！デフォルトの挙動（スクロールなど）を抑制
+            const rect = track.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const x = clientX - rect.left;
+            let value = x / rect.width;
+            value = Math.max(0, Math.min(1, value)); // 0から1の範囲にクランプ
+            updateSlider(value);
+            if (onChange) onChange(value);
+        };
+
+        const onStart = (e) => {
+            e.preventDefault(); // ここでもpreventDefault()
+            handleMove(e);
+            document.addEventListener('mousemove', handleMove);
+            document.addEventListener('touchmove', handleMove, { passive: false });
+            document.addEventListener('mouseup', () => { document.removeEventListener('mousemove', handleMove); }, { once: true });
+            document.addEventListener('touchend', () => { document.removeEventListener('touchmove', handleMove); }, { once: true });
+        };
+        parent.addEventListener('mousedown', onStart);
+        parent.addEventListener('touchstart', onStart, { passive: false }); // passive: falseを追加
+
+        updateSlider(initialValue); // Set initial value
+        return { set: updateSlider };
+    };
+
+    // --- UI/PANEL ---
+    const togglePanel = (panelId) => {
+        const targetPanel = document.getElementById(panelId);
+        const isVisible = targetPanel.classList.contains('visible');
+
+        // Close all panels and deactivate all nav icons first
+        dom.panels.forEach(p => p.classList.remove('visible'));
+        dom.navIcons.forEach(i => i.classList.remove('active'));
+        
+        if (!isVisible) {
+            targetPanel.classList.add('visible');
+            document.querySelectorAll(`.nav-icon[data-panel="${panelId}"]`).forEach(i => i.classList.add('active'));
+        }
+    };
+
+    // Clicking outside panels closes them
+    document.addEventListener('click', (e) => {
+        let clickedInsidePanel = false;
+        // Check if the click was inside any visible panel or a nav icon
+        dom.panels.forEach(p => {
+            // Todoパネルの場合、特定の要素内でのクリックを無視
+            if (p.classList.contains('visible')) {
+                 if (p.contains(e.target)) { // すべてのパネルに対して、パネル内クリックを判定
+                    clickedInsidePanel = true;
+                }
+            }
+        });
+        dom.navIcons.forEach(icon => {
+            if (icon.contains(e.target)) {
+                clickedInsidePanel = true;
+            }
+        });
+        dom.closePanelBtns.forEach(btn => {
+            if (btn.contains(e.target)) {
+                clickedInsidePanel = true;
+            }
+        });
+
+        if (!clickedInsidePanel) {
+            dom.panels.forEach(p => p.classList.remove('visible'));
+            dom.navIcons.forEach(i => i.classList.remove('active'));
+        }
+    });
+
+
+    dom.navIcons.forEach(i => i.addEventListener('click', (e) => {
+        e.stopPropagation(); // Stop propagation to prevent document click listener from closing immediately
+        togglePanel(i.dataset.panel);
+    }));
+    dom.closePanelBtns.forEach(b => b.addEventListener('click', (e) => {
+        e.stopPropagation(); // Stop propagation
+        togglePanel(b.dataset.panel); // Use b.dataset.panel to target the specific panel
+    }));
+
+    // --- SETTINGS ---
+    const initSettings = () => {
+        // Define settings structure
+        const settingItems = [
+            { key: 'pomodoro', label: 'Pomodoro (min)', type: 'number', min: 1 },
+            { key: 'shortBreak', label: 'Short Break (min)', type: 'number', min: 1 },
+            { key: 'longBreak', label: 'Long Break (min)', type: 'number', min: 1 },
+            { key: 'longBreakInterval', label: 'Long Break Interval', type: 'number', min: 0 }, // minを0に変更
+            { key: 'autoStartPomodoro', label: 'Auto Start Pomodoro', type: 'checkbox' },
+            { key: 'autoStartBreak', label: 'Auto Start Break', type: 'checkbox' },
+            { key: 'notificationSound', label: 'Notification Sound', type: 'checkbox' },
+            // Master Volume will be a slider, not an input field
+        ];
+
+        dom.settingsList.innerHTML = ''; // Clear existing settings
+        
+        settingItems.forEach(itemConfig => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'setting-item';
+
+            const label = document.createElement('span');
+            label.textContent = itemConfig.label;
+            itemDiv.appendChild(label);
+
+            if (itemConfig.type === 'number') {
+                const input = document.createElement('input');
+                input.type = 'text'; /* typeをnumberからtextに変更 */
+                input.id = `setting-${itemConfig.key}`;
+                // settings[itemConfig.key] を使用し、デフォルト値は settingsDefaultValues() から取得
+                input.value = settings[itemConfig.key] !== undefined ? settings[itemConfig.key] : settingsDefaultValues()[itemConfig.key];
+                input.dataset.min = itemConfig.min; /* min属性の代わりにdata属性を使用 */
+                input.addEventListener('change', (e) => {
+                    let value = parseInt(e.target.value);
+                    const min = parseInt(e.target.dataset.min);
+                    if (isNaN(value) || value < min) {
+                        value = min; // Fallback to min value if invalid
+                        e.target.value = value;
+                    }
+                    settings[itemConfig.key] = value;
+                    localStorage.setItem('focusTimerSettings', JSON.stringify(settings));
+                    // タイマー時間に関する設定変更は、直ちに反映させるためresetTimerを呼ぶ
+                    if (['pomodoro', 'shortBreak', 'longBreak'].includes(itemConfig.key)) {
+                        resetTimer();
+                    }
+                });
+                // 数字入力フィールドのクリックイベントでパネルが閉じないようにする
+                input.addEventListener('click', (e) => e.stopPropagation());
+                itemDiv.appendChild(input);
+            } else if (itemConfig.type === 'checkbox') {
+                const switchLabel = document.createElement('label');
+                switchLabel.className = 'switch';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `setting-${itemConfig.key}`;
+                checkbox.checked = settings[itemConfig.key];
+                
+                const slider = document.createElement('span');
+                slider.className = 'slider-ios';
+
+                checkbox.addEventListener('change', (e) => {
+                    settings[itemConfig.key] = e.target.checked;
+                    localStorage.setItem('focusTimerSettings', JSON.stringify(settings));
+                });
+                // チェックボックスのクリックイベントでパネルが閉じないようにする
+                checkbox.addEventListener('click', (e) => e.stopPropagation());
+                slider.addEventListener('click', (e) => e.stopPropagation());
+
+
+                switchLabel.appendChild(checkbox);
+                switchLabel.appendChild(slider);
+                itemDiv.appendChild(switchLabel);
+            }
+            dom.settingsList.appendChild(itemDiv);
+        });
+
+        // Add Master Volume slider separately
+        const masterVolumeDiv = document.createElement('div');
+        masterVolumeDiv.className = 'setting-item';
+        masterVolumeDiv.innerHTML = `<span>Master Volume</span>`;
+        const volumeSliderContainer = document.createElement('div');
+        volumeSliderContainer.style.width = '100px'; // Adjust width as needed
+        volumeSliderContainer.className = 'custom-slider';
+        masterVolumeDiv.appendChild(volumeSliderContainer);
+        dom.settingsList.appendChild(masterVolumeDiv);
+
+        const masterVolumeSlider = createCustomSlider(volumeSliderContainer, (value) => {
+            settings.masterVolume = value;
+            // Ambient sounds and BGM volumes are relative to master volume
+            Object.values(ambientSounds).forEach(sound => {
+                if (sound.audio) sound.audio.volume = settings.masterVolume * sound.currentVolume;
+            });
+            if (bgmAudio) bgmAudio.volume = settings.masterVolume * savedBgmVolume; // BGMの音量も再設定
+            localStorage.setItem('focusTimerSettings', JSON.stringify(settings));
+        }, settings.masterVolume); // Initialize with saved setting
+    };
+
+    // --- AMBIENT SOUNDS ---
+    const ambientSounds = {
+        rain: { file: './sound/ambient/rain.mp3', icon: 'ri-drizzle-line', animClass: 'rain-drop', intervalId: null, audio: null, currentVolume: 0.5 },
+        wind: { file: './sound/ambient/wind.mp3', icon: 'ri-windy-line', animClass: 'wind-line', intervalId: null, audio: null, currentVolume: 0.5 }, // animClassを'wind-line'に変更
+        fire: { file: './sound/ambient/fire.mp3', icon: 'ri-fire-line', animClass: 'ember', intervalId: null, audio: null, currentVolume: 0.5 },
+        cafe: { file: './sound/ambient/cafe.mp3', icon: 'ri-cup-line', animClass: null, intervalId: null, audio: null, currentVolume: 0.5 } // iconを'ri-cup-line'に変更
+    };
+
+    const initAmbientSounds = () => {
+        dom.ambientList.innerHTML = ''; // Clear existing
+        for (const [name, data] of Object.entries(ambientSounds)) {
+            const item = document.createElement('div');
+            item.className = 'sound-item';
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'sound-item-info';
+            infoDiv.innerHTML = `<i class="${data.icon}"></i><span>${name.charAt(0).toUpperCase() + name.slice(1)}</span>`;
+            item.appendChild(infoDiv);
+
+            const controlsDiv = document.createElement('div');
+            controlsDiv.className = 'sound-item-controls';
+
+            const sliderContainer = document.createElement('div');
+            sliderContainer.className = 'custom-slider';
+            sliderContainer.style.width = '100px';
+            controlsDiv.appendChild(sliderContainer);
+
+            const playPauseBtn = document.createElement('button');
+            playPauseBtn.className = 'control-btn';
+            playPauseBtn.innerHTML = '<i class="ri-play-line"></i>';
+            controlsDiv.appendChild(playPauseBtn);
+            item.appendChild(controlsDiv);
+
+            dom.ambientList.appendChild(item);
+
+            // Setup audio
+            data.audio = new Audio(data.file);
+            data.audio.loop = true;
+            // Load current volume from settings if available, otherwise use default
+            const savedAmbientVolume = JSON.parse(localStorage.getItem('focusTimerAmbientVolumes')) || {};
+            data.currentVolume = savedAmbientVolume[name] !== undefined ? savedAmbientVolume[name] : data.currentVolume;
+            data.audio.volume = settings.masterVolume * data.currentVolume; // Initial volume
+
+            // Setup slider
+            const slider = createCustomSlider(sliderContainer, (value) => {
+                data.currentVolume = value; // Store individual volume
+                data.audio.volume = settings.masterVolume * value; // Apply master volume
+                // Save individual ambient volume
+                savedAmbientVolume[name] = value;
+                localStorage.setItem('focusTimerAmbientVolumes', JSON.stringify(savedAmbientVolume));
+            }, data.currentVolume);
+
+
+            // Play/Pause button logic
+            playPauseBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // パネルが閉じないようにイベント伝播を停止
+                if (data.audio.paused) {
+                    data.audio.play().catch(error => console.error(`Error playing ${name} sound:`, error));
+                    playPauseBtn.innerHTML = '<i class="ri-pause-line"></i>';
+                    item.classList.add('playing');
+                    if (data.animClass) {
+                        // 既存のインターバルをクリアしてから新しいものを設定
+                        if (data.intervalId) clearInterval(data.intervalId); 
+                        data.intervalId = setInterval(() => createParticle(data.animClass), 200);
+                    }
+                } else {
+                    data.audio.pause();
+                    playPauseBtn.innerHTML = '<i class="ri-play-line"></i>';
+                    item.classList.remove('playing');
+                    if (data.intervalId) {
+                        clearInterval(data.intervalId);
+                        data.intervalId = null;
+                    }
+                }
+            });
+            // スライダー自体と、その内部要素のクリックイベントも伝播を停止
+            sliderContainer.addEventListener('click', (e) => e.stopPropagation());
+            sliderContainer.addEventListener('mousedown', (e) => e.stopPropagation());
+            sliderContainer.addEventListener('touchstart', (e) => e.stopPropagation());
+        }
+    };
+
+    const createParticle = (className) => {
+        const p = document.createElement('div');
+        p.className = className;
+        // Particle positions/animations should be dynamic
+        if (className === 'rain-drop') {
+            p.style.left = `${Math.random() * 100}vw`;
+            p.style.top = `-20px`; /* 画面上部から開始 */
+            p.style.animationDuration = `${Math.random() * 1.5 + 0.8}s`;
+            p.style.opacity = Math.random() * 0.5 + 0.2;
+            p.style.animationDelay = `-${Math.random() * 1.5}s`; // Stagger animation start
+            p.style.width = `${Math.random() * 1 + 0.5}px`;
+            p.style.height = `${Math.random() * 20 + 10}px`;
+            p.style.background = `rgba(255,255,255,${p.style.opacity})`;
+            p.style.transform = `translateX(${Math.random() * 50 - 25}px)`; // Slight horizontal drift
+        } else if (className === 'ember') {
+            p.style.left = `${50 + (Math.random() * 20 - 10)}%`; // Around center
+            p.style.bottom = `-10px`;
+            p.style.animationDuration = `${Math.random() * 3 + 2}s`;
+            p.style.opacity = Math.random() * 0.7 + 0.3;
+            p.style.animationDelay = `-${Math.random() * 3}s`;
+            p.style.width = p.style.height = `${Math.random() * 4 + 2}px`;
+            p.style.background = `rgba(255,190,0,0.5)`;
+            p.style.boxShadow = `0 0 ${Math.random() * 10 + 5}px rgba(255,190,0,0.8)`;
+        } else if (className === 'wind-line') { // Changed for new wind animation
+            p.style.width = `${Math.random() * 100 + 50}px`; // Length of the line
+            p.style.height = `${Math.random() * 1 + 0.5}px`; // Thickness
+            p.style.top = `${Math.random() * 100}vh`; // Random vertical position
+            p.style.right = `-10vw`; // Start off-screen right
+            p.style.background = `rgba(255, 255, 255, ${Math.random() * 0.2 + 0.1})`; // Faint white
+            p.style.animationDuration = `${Math.random() * 3 + 2}s`; // Duration
+            p.style.animationDelay = `-${Math.random() * 3}s`; // Stagger start
+            p.style.transform = `translateX(-120vw)`; // Move across screen to left
+            p.style.animationTimingFunction = `linear`;
+        }
+        
+        dom.background.appendChild(p);
+        setTimeout(() => p.remove(), parseFloat(p.style.animationDuration) * 1000 + (parseFloat(p.style.animationDelay || '0') * 1000) + 500); // Remove after animation + buffer
+    };
+
+    const animCSS = `
+        .rain-drop{position:absolute;top:-20px;background:rgba(255,255,255,0.3);animation:fall linear infinite;}
+        .ember{position:absolute;bottom:-20px;background:rgba(255,190,0,0.5);border-radius:50%;animation:rise linear infinite;box-shadow:0 0 10px rgba(255,190,0,0.8);}
+        /* New wind animation styles */
+        .wind-line{position:absolute; animation:sweep linear infinite;} 
+        @keyframes fall{to{transform:translateY(100vh);}}
+        @keyframes rise{to{transform:translateY(-100vh) scale(0); opacity:0 !important;}}
+        @keyframes sweep{from{transform:translateX(0);}to{transform:translateX(-120vw); opacity:0;}} /* New sweep animation */
+    `;
+    const styleSheet = document.createElement("style");
+    styleSheet.type = "text/css";
+    styleSheet.innerText = animCSS;
+    document.head.appendChild(styleSheet);
+
+
+    // --- BGM LOGIC ---
+    let bgmPlaylist = [];
+    let currentTrackIndex = 0;
+    const bgmAudio = new Audio();
+    bgmAudio.loop = true; // BGMはループ再生
+
+    // Load saved BGM volume
+    let savedBgmVolume = parseFloat(localStorage.getItem('focusTimerBgmVolume')) || 0.5;
+    const bgmVolumeSlider = createCustomSlider(dom.bgm.volumeContainer, v => {
+        savedBgmVolume = v; // Update savedBgmVolume with the new value
+        bgmAudio.volume = settings.masterVolume * savedBgmVolume;
+        localStorage.setItem('focusTimerBgmVolume', v.toString()); // Save BGM individual volume
+    }, savedBgmVolume); // Initialize BGM volume slider with saved value
+
+    dom.bgm.fileInput.addEventListener('change', async (e) => {
+        e.stopPropagation(); // ファイル入力もパネル閉じを防ぐ
+        bgmPlaylist = [];
+        const files = Array.from(e.target.files);
+        for (const file of files) {
+            try {
+                const tags = await new Promise((resolve, reject) => {
+                    jsmediatags.read(file, { onSuccess: resolve, onError: reject });
+                });
+                const track = {
+                    url: URL.createObjectURL(file),
+                    title: tags.tags.title || file.name.replace(/\.[^/.]+$/, ''),
+                    artist: tags.tags.artist || 'Unknown Artist'
+                };
+                bgmPlaylist.push(track);
+            } catch (error) {
+                console.error("Error reading ID3 tags or file:", error);
+                const track = {
+                    url: URL.createObjectURL(file),
+                    title: file.name.replace(/\.[^/.]+$/, ''),
+                    artist: 'Unknown Artist'
+                };
+                bgmPlaylist.push(track);
+            }
+        }
+        if (bgmPlaylist.length > 0) {
+            loadBgmTrack(0);
+            playBgm(); // Auto-play after loading
+        }
+    });
+
+    const loadBgmTrack = (index) => {
+        if (!bgmPlaylist.length) {
+            dom.bgm.title.textContent = 'No music selected';
+            dom.bgm.artist.textContent = '';
+            bgmAudio.src = '';
+            return;
+        }
+        currentTrackIndex = (index + bgmPlaylist.length) % bgmPlaylist.length; // 負の値対応
+        const track = bgmPlaylist[currentTrackIndex];
+        bgmAudio.src = track.url;
+        bgmAudio.volume = settings.masterVolume * savedBgmVolume; // Apply master volume and saved individual BGM volume
+        dom.bgm.title.textContent = track.title;
+        dom.bgm.artist.textContent = track.artist;
+    };
+
+    const playBgm = () => {
+        if (!bgmPlaylist.length) return;
+        bgmAudio.play().catch(e => console.error("Error playing BGM:", e));
+        dom.bgm.playBtn.innerHTML = '<i class="ri-pause-line"></i>';
+    };
+
+    const pauseBgm = () => {
+        bgmAudio.pause();
+        dom.bgm.playBtn.innerHTML = '<i class="ri-play-line"></i>';
+    };
+
+    dom.bgm.playBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // パネルが閉じないようにイベント伝播を停止
+        bgmAudio.paused ? playBgm() : pauseBgm();
+    });
+    dom.bgm.nextBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // パネルが閉じないようにイベント伝播を停止
+        if(!bgmPlaylist.length) return; 
+        loadBgmTrack(currentTrackIndex + 1); 
+        playBgm();
+    });
+    dom.bgm.prevBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // パネルが閉じないようにイベント伝播を停止
+        if(!bgmPlaylist.length) return; 
+        loadBgmTrack(currentTrackIndex - 1); 
+        playBgm();
+    });
+    bgmAudio.addEventListener('ended', () => {
+        if (bgmPlaylist.length > 1) { // 複数曲ある場合のみ次の曲へ
+            loadBgmTrack(currentTrackIndex + 1);
+            playBgm();
+        } else { // 1曲のみの場合は一時停止
+            pauseBgm();
+        }
+    });
+
+
+    // --- TODO LOGIC ---
+    let todos = JSON.parse(localStorage.getItem('focusTimerTodos')) || [];
+
+    const saveTodos = () => {
+        localStorage.setItem('focusTimerTodos', JSON.stringify(todos));
+    };
+
+    const renderTodos = () => {
+        dom.todo.list.innerHTML = '';
+        todos.forEach((todo, index) => {
+            const li = document.createElement('li');
+            li.dataset.index = index;
+            if (todo.completed) {
+                li.classList.add('completed');
+            }
+            // Todoリストアイテム自体のクリックイベント
+            li.addEventListener('click', (e) => {
+                e.stopPropagation(); // Todoリストの項目をクリックしてもパネルが閉じないようにする
+                const idx = parseInt(li.dataset.index);
+                if (e.target.closest('.delete-btn')) {
+                    todos.splice(idx, 1);
+                } else {
+                    todos[idx].completed = !todos[idx].completed;
+                }
+                saveTodos();
+                renderTodos();
+            });
+            li.innerHTML = `<span>${todo.text}</span><button class="delete-btn"><i class="ri-delete-bin-6-line"></i></button>`;
+            dom.todo.list.appendChild(li);
+        });
+    };
+
+    dom.todo.input.addEventListener('keypress', e => {
+        e.stopPropagation(); // 入力フィールドのキープレスでもパネルが閉じないようにする
+        if (e.key === 'Enter' && dom.todo.input.value.trim() !== '') {
+            todos.push({ text: dom.todo.input.value.trim(), completed: false });
+            dom.todo.input.value = '';
+            saveTodos();
+            renderTodos();
+        }
+    });
+
+    // Todoリストの全体にもクリックイベントの伝播停止を追加
+    dom.todo.list.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+
+    // --- EVENT LISTENERS ---
+    dom.startStopBtn.addEventListener('click', () => isRunning ? pauseTimer() : startTimer());
+    
+    // リセットボタンの新しいイベントリスナー
+    dom.resetBtn.addEventListener('click', () => {
+        resetTimer(); 
+    });
+
+    // スキップボタンの新しいイベントリスナー
+    dom.nextBtn.addEventListener('click', () => {
+        switchMode(false); 
+    });
+    
+    // --- INITIALIZATION ---
+    function init() {
+        // ウィンドウサイズに基づいてモバイルナビゲーションの表示を制御
+        const handleResize = () => {
+            if (window.innerWidth <= 768) {
+                document.querySelectorAll('.corner-nav').forEach(n => n.style.display = 'none');
+                dom.mobileNav.style.display = 'flex';
+            } else {
+                document.querySelectorAll('.corner-nav').forEach(n => n.style.display = 'block'); // デスクトップでは表示
+                dom.mobileNav.style.display = 'none'; // デスクトップでは非表示
+            }
+        };
+
+        // 初期ロード時とリサイズ時に実行
+        handleResize();
+        window.addEventListener('resize', handleResize);
+
+        setupDigitTracks();
+        initSettings(); 
+        initAmbientSounds();
+        loadBgmTrack(0); 
+        renderTodos();
+        resetTimer(); 
+    }
+    init();
+});
+</script>
+</body>
+</html>

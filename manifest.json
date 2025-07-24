@@ -1,0 +1,21 @@
+{
+    "name": "Pomodoro Focus Timer",
+    "short_name": "Focus Timer",
+    "description": "A minimal and modern Pomodoro timer with ambient sounds and a to-do list.",
+    "start_url": "./timer.html",
+    "display": "standalone",
+    "background_color": "#101010",
+    "theme_color": "#101010",
+    "icons": [
+      {
+        "src": "./icon-192.png",
+        "type": "image/png",
+        "sizes": "192x192"
+      },
+      {
+        "src": "./icon-512.png",
+        "type": "image/png",
+        "sizes": "512x512"
+      }
+    ]
+  }
